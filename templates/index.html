@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NetSentry</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.0.3/dist/tailwind.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+    }
+    .header {
+      background: linear-gradient(90deg, rgba(34,193,195,1) 0%, rgba(253,187,45,1) 100%);
+      color: white;
+    }
+    .footer {
+      background-color: #2d3748;
+      color: white;
+    }
+    .button {
+      background-color: #4CAF50;
+      color: white;
+      font-size: 16px;
+      font-weight: 500;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s;
+      transform: translateY(0);
+    }
+    .button:hover {
+      background-color: #45a049;
+      transform: translateY(-2px);
+    }
+    .streaming {
+      background-color: #FF5722;
+    }
+    .streaming:hover {
+      background-color: #f44336;
+    }
+    .streaming:active {
+      transform: translateY(2px);
+    }
+    .streaming, .button {
+      transition: background-color 0.3s ease, transform 0.3s ease;
+    }
+    .stream-output {
+      opacity: 0;
+      animation: fadeIn 0.5s forwards;
+    }
+    @keyframes fadeIn {
+      to {
+        opacity: 1;
+      }
+    }
+    .status-text {
+      font-size: 14px;
+      font-weight: 500;
+      margin-top: 8px;
+      transition: color 0.3s ease;
+    }
+    .status-text.capturing {
+      color: #4CAF50; /* Green */
+    }
+    .status-text.stopped {
+      color: #FF5722; /* Red */
+    }
+  </style>
+</head>
+<body class="bg-gray-100">
+  <div class="min-h-screen flex flex-col">
+    <!-- Header -->
+    <header class="header p-4 shadow-md">
+      <div class="container mx-auto flex justify-between items-center">
+        <h1 class="text-3xl font-bold">NetSentry</h1>
+      </div>
+    </header>
+
+    <!-- Main content -->
+    <div class="flex-1 flex flex-col items-center py-8">
+      <!-- Outer container, increased max width and padding for a more spacious look -->
+      <div class="w-full max-w-6xl xl:max-w-7xl 2xl:max-w-screen-xl bg-white rounded-lg shadow-md p-8">
+        <h2 class="text-xl font-semibold text-gray-800 mb-4">Interface: {{ interface_name }}</h2>
+
+        <!-- Capture Control Buttons -->
+        <div class="mb-6 flex justify-between">
+          <button id="startCapture" class="button" onclick="startCapture()">Start Capture</button>
+          <button id="stopCapture" class="button streaming" onclick="stopCapture()">Stop Capture</button>
+        </div>
+
+        <!-- Status Text Below Buttons -->
+        <div id="statusText" class="status-text"></div>
+
+        <!-- Stream Display -->
+        <div id="packetStream" class="mb-4 bg-gray-900 text-white p-4 rounded-lg shadow-lg max-h-96 overflow-y-scroll w-full lg:max-w-6xl xl:max-w-7xl 2xl:max-w-screen-xl mx-auto">
+          <h3 class="text-lg font-medium">Live Packet Stream</h3>
+          <div id="streamOutput" class="mt-2 overflow-auto"></div>
+        </div>
+
+        <!-- Download PCAP -->
+        <a href="/download" class="button w-full">Get PCAP File</a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer py-4 text-center">
+      <p class="text-sm">© 2025 NetSentry. All rights reserved.</p>
+    </footer>
+  </div>
+
+  <!-- Scripts -->
+  <script>
+    let captureInProgress = false;
+    let eventSource = null;
+
+    function startCapture() {
+      if (captureInProgress) {
+        alert('Capture is already running!');
+        return;
+      }
+
+      // Update status text immediately when starting capture and change color to green
+      const statusText = document.getElementById('statusText');
+      statusText.textContent = "Capturing live packets...";
+      statusText.classList.add('capturing');
+      statusText.classList.remove('stopped');
+
+      fetch('/start')
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'Capture started') {
+            captureInProgress = true;
+            document.getElementById('startCapture').disabled = true;
+            document.getElementById('stopCapture').disabled = false;
+            startStreaming();
+          }
+        });
+    }
+
+    function stopCapture() {
+      if (!captureInProgress) {
+        alert('Capture is not running!');
+        return;
+      }
+
+      // Update status text immediately when stopping capture and change color to red
+      const statusText = document.getElementById('statusText');
+      statusText.textContent = "Stopping capture...";
+      statusText.classList.add('capturing');
+      statusText.classList.remove('stopped');
+
+      fetch('/stop')
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'Capture stopped') {
+            captureInProgress = false;
+            document.getElementById('startCapture').disabled = false;
+            document.getElementById('stopCapture').disabled = true;
+            stopStreaming();
+            // Change status text and color to red after capture stops
+            statusText.textContent = "Capture stopped.";
+            statusText.classList.add('stopped');
+            statusText.classList.remove('capturing');
+          }
+        });
+    }
+
+    function startStreaming() {
+      eventSource = new EventSource('/stream');
+      eventSource.onmessage = function (event) {
+        const packetData = event.data;
+        const streamOutput = document.getElementById('streamOutput');
+        const packetDiv = document.createElement('div');
+        packetDiv.classList.add('stream-output');  // Add animation class
+        packetDiv.textContent = packetData;
+        streamOutput.appendChild(packetDiv);
+
+        // Scroll to the bottom of the stream
+        streamOutput.scrollTop = streamOutput.scrollHeight;
+      };
+
+      eventSource.onerror = function () {
+        stopStreaming();
+        alert('Error streaming packets.');
+      };
+    }
+
+    function stopStreaming() {
+      if (eventSource) {
+        eventSource.close();
+      }
+    }
+  </script>
+</body>
+</html>
